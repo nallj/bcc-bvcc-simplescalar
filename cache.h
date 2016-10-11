@@ -105,6 +105,13 @@ enum cache_policy {
   FIFO		/* replace the oldest block in the set */
 };
 
+// Custom cache type.
+enum custom_cache_type {
+	Generic,  // Standard generic cache structure supplied with out-of-the-box SimpleScalar.
+	BCC,      // Buffer-Controlled Cache
+	BVCC      // Base-Victim Compression Cache
+};
+
 /* block status values */
 #define CACHE_BLK_VALID		0x00000001	/* block in valid, in use */
 #define CACHE_BLK_DIRTY		0x00000002	/* dirty block */
@@ -220,6 +227,7 @@ cache_create(char *name,		/* name of the cache */
 	     int usize,			/* size of user data to alloc w/blks */
 	     int assoc,			/* associativity of cache */
 	     enum cache_policy policy,	/* replacement policy w/in sets */
+		 enum custom_cache_type cacheType,   // Type of cache architecture to use.
 	     /* block access function, see description w/in struct cache def */
 	     unsigned int (*blk_access_fn)(enum mem_cmd cmd,
 					   md_addr_t baddr, int bsize,
@@ -230,6 +238,9 @@ cache_create(char *name,		/* name of the cache */
 /* parse policy */
 enum cache_policy			/* replacement policy enum */
 cache_char2policy(char c);		/* replacement policy as a char */
+
+// Parse custom cache type.
+enum custom_cache_type cache_char2cacheType(char c);
 
 /* print cache configuration */
 void

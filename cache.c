@@ -265,6 +265,7 @@ cache_create(char *name,		/* name of the cache */
 	     int usize,			/* size of user data to alloc w/blks */
 	     int assoc,			/* associativity of cache */
 	     enum cache_policy policy,	/* replacement policy w/in sets */
+		 enum custom_cache_type cacheType,   // Type of cache architecture to use.
 	     /* block access function, see description w/in struct cache def */
 	     unsigned int (*blk_access_fn)(enum mem_cmd cmd,
 					   md_addr_t baddr, int bsize,
@@ -410,6 +411,17 @@ cache_char2policy(char c)		/* replacement policy as a char */
   case 'r': return Random;
   case 'f': return FIFO;
   default: fatal("bogus replacement policy, `%c'", c);
+  }
+}
+
+// Parse custom cache type.
+enum custom_cache_type cache_char2cacheType(char c)
+{
+  switch (c) {
+  case 'g': return Generic;
+  case 'b': return BCC;
+  case 'c': return BVCC;
+  default: fatal("bogus cache type, `%c'", c);
   }
 }
 
