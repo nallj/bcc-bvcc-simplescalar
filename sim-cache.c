@@ -270,49 +270,52 @@ sim_reg_options(struct opt_odb_t *odb)	/* options database */
 
   opt_reg_string(odb, "-cache:dl1",
 		 "l1 data cache config, i.e., {<config>|none}",
-		 &cache_dl1_opt, "dl1:256:32:1:l", /* print */TRUE, NULL);
+		 &cache_dl1_opt, "dl1:256:32:1:l:g", /* print */TRUE, NULL);
   opt_reg_note(odb,
 "  The cache config parameter <config> has the following format:\n"
 "\n"
-"    <name>:<nsets>:<bsize>:<assoc>:<repl>\n"
+"    <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>\n"
 "\n"
 "    <name>   - name of the cache being defined\n"
 "    <nsets>  - number of sets in the cache\n"
 "    <bsize>  - block size of the cache\n"
 "    <assoc>  - associativity of the cache\n"
 "    <repl>   - block replacement strategy, 'l'-LRU, 'f'-FIFO, 'r'-random\n"
+"    <cust>   - use custom cache, 'g'-generic cache, \n"
+"                                 'b'-Buffer-Controlled Cache (BCC)\n"
+"                                 'c'-Base-Victim Cache Compression (BVCC)\n"
 "\n"
-"    Examples:   -cache:dl1 dl1:4096:32:1:l\n"
-"                -dtlb dtlb:128:4096:32:r\n"
+"    Examples:   -cache:dl1 dl1:4096:32:1:l:g\n"
+"                -dtlb dtlb:128:4096:32:r:g\n"
 	       );
   opt_reg_string(odb, "-cache:dl2",
 		 "l2 data cache config, i.e., {<config>|none}",
-		 &cache_dl2_opt, "ul2:1024:64:4:l", /* print */TRUE, NULL);
+		 &cache_dl2_opt, "ul2:1024:64:4:l:g", /* print */TRUE, NULL);
   opt_reg_string(odb, "-cache:il1",
 		 "l1 inst cache config, i.e., {<config>|dl1|dl2|none}",
-		 &cache_il1_opt, "il1:256:32:1:l", /* print */TRUE, NULL);
+		 &cache_il1_opt, "il1:256:32:1:l:g", /* print */TRUE, NULL);
   opt_reg_note(odb,
 "  Cache levels can be unified by pointing a level of the instruction cache\n"
 "  hierarchy at the data cache hiearchy using the \"dl1\" and \"dl2\" cache\n"
 "  configuration arguments.  Most sensible combinations are supported, e.g.,\n"
 "\n"
 "    A unified l2 cache (il2 is pointed at dl2):\n"
-"      -cache:il1 il1:128:64:1:l -cache:il2 dl2\n"
-"      -cache:dl1 dl1:256:32:1:l -cache:dl2 ul2:1024:64:2:l\n"
+"      -cache:il1 il1:128:64:1:l:g -cache:il2 dl2\n"
+"      -cache:dl1 dl1:256:32:1:l:g -cache:dl2 ul2:1024:64:2:l:g\n"
 "\n"
 "    Or, a fully unified cache hierarchy (il1 pointed at dl1):\n"
 "      -cache:il1 dl1\n"
-"      -cache:dl1 ul1:256:32:1:l -cache:dl2 ul2:1024:64:2:l\n"
+"      -cache:dl1 ul1:256:32:1:l:g -cache:dl2 ul2:1024:64:2:l:g\n"
 	       );
   opt_reg_string(odb, "-cache:il2",
 		 "l2 instruction cache config, i.e., {<config>|dl2|none}",
 		 &cache_il2_opt, "dl2", /* print */TRUE, NULL);
   opt_reg_string(odb, "-tlb:itlb",
 		 "instruction TLB config, i.e., {<config>|none}",
-		 &itlb_opt, "itlb:16:4096:4:l", /* print */TRUE, NULL);
+		 &itlb_opt, "itlb:16:4096:4:l:g", /* print */TRUE, NULL);
   opt_reg_string(odb, "-tlb:dtlb",
 		 "data TLB config, i.e., {<config>|none}",
-		 &dtlb_opt, "dtlb:32:4096:4:l", /* print */TRUE, NULL);
+		 &dtlb_opt, "dtlb:32:4096:4:l:g", /* print */TRUE, NULL);
   opt_reg_flag(odb, "-flush", "flush caches on system calls",
 	       &flush_on_syscalls, /* default */FALSE, /* print */TRUE, NULL);
   opt_reg_flag(odb, "-cache:icompress",
