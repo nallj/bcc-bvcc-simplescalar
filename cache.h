@@ -162,6 +162,7 @@ struct cache_t
   int usize;			/* user allocated data size */
   int assoc;			/* cache associativity */
   enum cache_policy policy;	/* cache replacement policy */
+  enum custom_cache_type cacheType; // Custom cache type.
   unsigned int hit_latency;	/* cache hit latency */
 
   /* miss/replacement handler, read/write BSIZE bytes starting at BADDR

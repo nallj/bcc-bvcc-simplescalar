@@ -310,6 +310,7 @@ cache_create(char *name,		/* name of the cache */
   cp->usize = usize;
   cp->assoc = assoc;
   cp->policy = policy;
+  cp->cacheType = cacheType;
   cp->hit_latency = hit_latency;
 
   /* miss/replacement functions */
@@ -415,14 +416,13 @@ cache_char2policy(char c)		/* replacement policy as a char */
 }
 
 // Parse custom cache type.
-enum custom_cache_type cache_char2cacheType(char c)
-{
-  switch (c) {
-  case 'g': return Generic;
-  case 'b': return BCC;
-  case 'c': return BVCC;
-  default: fatal("bogus cache type, `%c'", c);
-  }
+enum custom_cache_type cache_char2cacheType(char c) {
+    switch (c) {
+        case 'g': return Generic;
+        case 'b': return BCC;
+        case 'c': return BVCC;
+        default: fatal("bogus cache type, `%c'", c);
+    }
 }
 
 /* print cache configuration */
