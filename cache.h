@@ -151,6 +151,17 @@ struct cache_set_t
 				   access to cache blocks */
 };
 
+// Since everything else is a struct, might as well follow suit concerning the MRU buffer.
+struct cache_bcc_mru_buffer_entry {
+	md_addr_t tag;
+	unsigned way;
+	unsigned been_set;
+};
+
+struct cache_bcc_mru_buffer {
+	struct cache_bcc_mru_buffer_entry bufferEntries[1];
+};
+
 /* cache definition */
 struct cache_t
 {
@@ -213,6 +224,12 @@ struct cache_t
 
   /* data blocks */
   byte_t *data;			/* pointer to data blocks allocation */
+
+  // Buffer-Controlled Cache MRU buffer. THIS PROBABLY WONT WORK OUT SINCE IT IS COMPETING WITH THE sets[1] ARRAY.
+  //struct cache_bcc_mru_buffer_entry mru_buffer[1];
+  //struct cache_bcc_mru_buffer *bcc_mru_buffer;
+  struct cache_bcc_mru_buffer_entry *mru_buffer;
+  //struct cache_bcc_mru_buffer *mru_buffer;
 
   /* NOTE: this is a variable-size tail array, this must be the LAST field
      defined in this structure! */
