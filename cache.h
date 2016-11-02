@@ -137,6 +137,9 @@ struct cache_blk_t
      defined in this structure! */
   byte_t data[1];		/* actual data block starts here, block size
 				   should probably be a multiple of 8 */
+
+  // Needed for BCC to keep track of which way each block belongs to.
+  unsigned way_id;
 };
 
 /* cache set definition (one or more blocks sharing the same set index) */
@@ -145,7 +148,7 @@ struct cache_set_t
   struct cache_blk_t **hash;	/* hash table: for fast access w/assoc, NULL
 				   for low-assoc caches */
   struct cache_blk_t *way_head;	/* head of way list */
-  struct cache_blk_t *way_tail;	/* tail pf way list */
+  struct cache_blk_t *way_tail;	/* tail of way list */
   struct cache_blk_t *blks;	/* cache blocks, allocated sequentially, so
 				   this pointer can also be used for random
 				   access to cache blocks */
@@ -153,14 +156,17 @@ struct cache_set_t
 
 // Since everything else is a struct, might as well follow suit concerning the MRU buffer.
 struct cache_bcc_mru_buffer_entry {
-	md_addr_t tag;
-	unsigned way;
+	md_addr_t tag; // 4 bytes (32b) of the 'word_t' type (literally an 'unsigned int' declared in host.h, line 88)
 	unsigned been_set;
+
+	// Can't use a number to mark the way because the simulator does not keep track of things that way.
+	//unsigned way;
+	struct cache_blk_t *way;
 };
 
-struct cache_bcc_mru_buffer {
+/*struct cache_bcc_mru_buffer {
 	struct cache_bcc_mru_buffer_entry bufferEntries[1];
-};
+};*/
 
 /* cache definition */
 struct cache_t

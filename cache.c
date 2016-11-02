@@ -323,12 +323,12 @@ cache_create(char *name,		/* name of the cache */
 
   /* compute derived parameters */
   cp->hsize = CACHE_HIGHLY_ASSOC(cp) ? (assoc >> 2) : 0;
-  cp->blk_mask = bsize-1;
+  cp->blk_mask = bsize-1;				// for 8B cache blocks, it would be ...00000111
   cp->set_shift = log_base2(bsize);
   cp->set_mask = nsets-1;
   cp->tag_shift = cp->set_shift + log_base2(nsets);
   cp->tag_mask = (1 << (32 - cp->tag_shift))-1;
-  cp->tagset_mask = ~cp->blk_mask;
+  cp->tagset_mask = ~cp->blk_mask;		// for 8B cache blocks, it would be ...11111000
   cp->bus_free = 0;
 
   /* print derived parameters during debug */
@@ -371,9 +371,14 @@ cache_create(char *name,		/* name of the cache */
 	  int i;
 	  for (i = 0; i < nsets; i++) {
 		  cp->mru_buffer[i].tag = 0;
-		  cp->mru_buffer[i].way = 0;
 		  cp->mru_buffer[i].been_set = FALSE;
+
+		  //cp->mru_buffer[i].way = 0;
+		  cp->mru_buffer[i].way = NULL;
 	  }
+
+  } else if (cp->cacheType == BVCC) {
+	  // Do BVCC cache initialization.
   }
 
   if (!cp->data)
@@ -413,6 +418,9 @@ cache_create(char *name,		/* name of the cache */
 	  blk->user_data = (usize != 0
 			    ? (byte_t *)calloc(usize, sizeof(byte_t)) : NULL);
 
+	  // For BCC, denote which way this block represents in the way chain/hash table.
+	  blk->way_id = j;
+
 	  /* insert cache block into set hash table */
 	  if (cp->hsize)
 	    link_htab_ent(cp, &cp->sets[i], blk);
@@ -420,9 +428,12 @@ cache_create(char *name,		/* name of the cache */
 	  /* insert into head of way list, order is arbitrary at this point */
 	  blk->way_next = cp->sets[i].way_head;
 	  blk->way_prev = NULL;
+
 	  if (cp->sets[i].way_head)
 	    cp->sets[i].way_head->way_prev = blk;
+
 	  cp->sets[i].way_head = blk;
+
 	  if (!cp->sets[i].way_tail)
 	    cp->sets[i].way_tail = blk;
 	}
@@ -786,10 +797,6 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
   // Handle the actions of a Buffer-Controlled Cache.
   } else if (cp->cacheType == BCC) {
-	  //printf("\n>>>>>>>>>>>>>>>>>>>> Attempting to access data from a BCC type cache\n\n");
-
-	  // requested index = specific MRU buffer entry
-	  // does requested tag match the entry kept by the buffer
 
 
 
@@ -805,37 +812,144 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
 
 
+		printf("\n[Performing BCC]: looking for tag '0x%X' (%u) in the '%uth' set.s\n", tag, tag, set);
+
+		// If the MRU buffer entry for the requested set has not been set,
+		//   this request results in a compulsory miss.
+		printf("Has the MRU buffer entry been set (is valid)? '%u'\n", cp->mru_buffer[set].been_set);
+		if (!cp->mru_buffer[set].been_set)
+			goto bcc_miss;
+
+		// Retreive the tag from the MRU buffer.
+		md_addr_t previous_tag_from_target_set = cp->mru_buffer[set].tag;
+		printf("   Entry is valid, holding tag '0x%X'\n\n", previous_tag_from_target_set);
+
+		// Find the cache in the way recorded in the buffer entry.
+		unsigned matching_block_found = 0, found_way_tag;
+
+		// Phased Mode will require an additional cycle, but otherwise follows the same hit formula as normal.
+		unsigned additional_hit_latency = 0;
 
 
-		/* permissions are checked on cache misses */
+		// If the requested tag matches the MRU record for this set, try Way-Prediction Mode.
+		if (tag == previous_tag_from_target_set) {
 
-		/* check for a fast hit: access to same block */
-		if (CACHE_TAGSET(cp, addr) == cp->last_tagset) {
-			/* hit in the same block */
-			blk = cp->last_blk;
-			goto bcc_cache_fast_hit;
-		}
+			// Check in the way associated with the matching tag.
+			//unsigned predicted_way = cp->mru_buffer[set].way;
+			struct cache_blk_t *predicted_way = cp->mru_buffer[set].way;
 
-		if (cp->hsize) {
+			// Highly-associative (>=8 ways) cache: access through the per-set hash tables.
+			if (cp->hsize) {
 
-			/* higly-associativity cache, access through the per-set hash tables */
-			int hindex = CACHE_HASH(cp, tag);
+				int hindex = CACHE_HASH(cp, tag);
+				printf("   HIGH ASSOC: Trying out hash index %d\n   ", hindex);
 
-			for (blk=cp->sets[set].hash[hindex]; blk; blk=blk->hash_next) {
-				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
-					goto bcc_cache_hit;
+				for (blk = cp->sets[set].hash[hindex]; blk && matching_block_found != 1; blk = blk->hash_next) {
+					printf("   * trying out way #%u at address %p - does '%X' match '%X'?\n",
+							blk->way_id, blk, blk->tag, tag);
+
+					if (blk == predicted_way) {
+						matching_block_found = 1;
+						found_way_tag = blk->tag;
+					}
+				}
+
+			// Low-associativity (<8 ways) cache: linearly search through the way list.
+			} else {
+
+				printf("   LOW ASSOC\n");
+
+				for (blk = cp->sets[set].way_head; blk && matching_block_found != 1; blk = blk->way_next) {
+					printf("   * trying out way #%u at address %p - does '%X' match '%X'?\n",
+							blk->way_id, blk, blk->tag, tag);
+
+					if (blk == predicted_way) {
+						matching_block_found = 1;
+						found_way_tag = blk->tag;
+					}
+				}
 			}
+
+			if (!matching_block_found)
+				panic("\n>>>   ERROR: In Way-Prediction Mode it should be impossible to not find the desired match.");
+
+			// The found way's tag content should match the requested tag.
+			//unsigned found_way_tag = blk->tag;
+
+			printf("\n   MRU buffer prediction Way is at address %p. The tag content within the way is '0x%X' (%u).\n",
+				predicted_way, found_way_tag, found_way_tag);
+
+			// Check for tag equivalence; this is for debugging puposes.
+			if (found_way_tag == tag)
+				printf("      GREAT!  The way content tag matches the requested tag.\n");
+			else
+				panic(">>>   ERROR: The way content tag does not match the requested tag (logic error)\n");
+
+			// If the requested tag matches the tag held in the MRU buffer, a fast hit has been acheived!
+			goto bcc_hit;
+
+
+		// If the requested tag doesn't match the corresponding set's buffer entry, search with Phased Mode.
 		} else {
-			/* low-associativity cache, linear search the way list */
-			for (blk=cp->sets[set].way_head; blk; blk=blk->way_next) {
-				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
-					goto bcc_cache_hit;
+
+			// Highly-associative (>=8 ways) cache: access through the per-set hash tables.
+			if (cp->hsize) {
+
+				int hindex = CACHE_HASH(cp, tag);
+				printf("   HIGH ASSOC: Trying out hash index %d\n   ", hindex);
+
+				for (blk = cp->sets[set].hash[hindex]; blk && matching_block_found != 1; blk = blk->hash_next) {
+					printf("   * trying out way #%u at address %p - does '%X' match '%X'?\n",
+							blk->way_id, blk, blk->tag, tag);
+
+					if (blk->tag == tag && (blk->status & CACHE_BLK_VALID)) {
+						matching_block_found = 1;
+						break;
+					}
+				}
+
+			// Low-associativity (<8 ways) cache: linearly search through the way list.
+			} else {
+
+				printf("   LOW ASSOC\n");
+
+				for (blk = cp->sets[set].way_head; blk && matching_block_found != 1; blk = blk->way_next) {
+					printf("   * trying out way #%u at address %p - does '%X' match '%X'?\n",
+							blk->way_id, blk, blk->tag, tag);
+
+					if (blk->tag == tag && (blk->status & CACHE_BLK_VALID)) {
+						matching_block_found = 1;
+						break;
+					}
+				}
 			}
+
+			// If a block was found matching the requested tag, then Phased Mode has succeeded.
+			if (matching_block_found == 1) {
+
+				// It looks like the entry must be set later to ensure the block has been
+				//    correctly allocated in the simulator's memory.
+
+				// Set tag and way in MRU buffer entry for this set.
+				cp->mru_buffer[set].tag = tag;
+				cp->mru_buffer[set].way = blk;
+
+				// If the requested tag matches the tag held in the MRU buffer, a slow hit has been acheived!
+				additional_hit_latency++;
+				goto bcc_hit;
+			}
+
+			// If the block was not found, it's a slow cache miss (+2 cycles).
+			// Simply fall through to "bcc_slow_miss" label.
 		}
 
-		/* cache block not found */
 
-		/* **MISS** */
+// A slow miss occurs when Phased Mode is attempted but fails (additional 2 cycle penalty).
+bcc_slow_miss:
+		lat = 2;
+
+// Everything common to both slow and compuslory misses (no additional penaly).
+bcc_miss:
 		cp->misses++;
 
 		/* select the appropriate block to replace, and re-link this entry to
@@ -845,6 +959,9 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			case FIFO:
 				repl = cp->sets[set].way_tail;
 				update_way_list(&cp->sets[set], repl, Head);
+
+				printf("\n   The %uth way being replaced is at program address '%p' (%X)\n",
+						repl->way_id, repl, repl);
 				break;
 
 			case Random: {
@@ -897,9 +1014,8 @@ cache_access(struct cache_t *cp,	/* cache to access */
 		lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize, repl, now+lat);
 
 		/* copy data out of cache block */
-		if (cp->balloc) {
+		if (cp->balloc)
 			CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
-		}
 
 		/* update dirty status */
 		if (cmd == Write)
@@ -910,26 +1026,33 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			*udata = repl->user_data;
 
 		/* update block status */
-		repl->ready = now+lat;
+		repl->ready = now + lat;
 
 		/* link this entry back into the hash table */
 		if (cp->hsize)
 			link_htab_ent(cp, &cp->sets[set], repl);
 
+		// The old block has been replaced and now the new block has been set in the MRU buffer.
+		// Set tag and way in MRU buffer entry for this set.
+		cp->mru_buffer[set].way = repl;
+		cp->mru_buffer[set].tag = tag;
+		cp->mru_buffer[set].been_set = 1;
+
+		printf("   The %uth way at program address '%p' (%X) now has a tag of '0x%X'.\n",
+				repl->way_id, repl, repl, repl->tag);
+
 		/* return latency of the operation */
 		return lat;
 
 
-/* BCC slow hit handler */
-bcc_cache_hit:
-
+// Handle cache hits produced by either mode.
+bcc_hit:
 		/* **HIT** */
 		cp->hits++;
 
 		/* copy data out of cache block, if block exists */
-		if (cp->balloc) {
+		if (cp->balloc)
 			CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
-		}
 
 		/* update dirty status */
 		if (cmd == Write)
@@ -952,39 +1075,13 @@ bcc_cache_hit:
 		if (udata)
 			*udata = blk->user_data;
 
-		/* return first cycle data is available to access */
-		return (int) MAX(cp->hit_latency, (blk->ready - now));
-
-
-/* BCC fast hit handler */
-bcc_cache_fast_hit:
-
-		/* **FAST HIT** */
-		cp->hits++;
-
-		/* copy data out of cache block, if block exists */
-		if (cp->balloc) {
-			CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
-		}
-
-		/* update dirty status */
-		if (cmd == Write)
-			blk->status |= CACHE_BLK_DIRTY;
-
-		/* this block hit last, no change in the way list */
-
-		/* tag is unchanged, so hash links (if they exist) are still valid */
-
-		/* get user block data, if requested and it exists */
-		if (udata)
-			*udata = blk->user_data;
-
-		/* record the last block to hit */
-		cp->last_tagset = CACHE_TAGSET(cp, addr);
-		cp->last_blk = blk;
+		// Set tag and way in MRU buffer entry for this set.
+		//cp->mru_buffer[set].tag = tag;
+		//cp->mru_buffer[set].way = way_counter;
+		//cp->mru_buffer[set].way = blk;
 
 		/* return first cycle data is available to access */
-		return (int) MAX(cp->hit_latency, (blk->ready - now));
+		return (int) MAX(cp->hit_latency + additional_hit_latency, (blk->ready - now));
 
 
 
@@ -999,16 +1096,12 @@ bcc_cache_fast_hit:
 
 
 
-
-	  return 0;
 
   // Handle the actions of a Base-Victim Compression Cache.
   } else if (cp->cacheType == BVCC) {
-	  printf("\n>>>>>>>>>>>>>>>>>>>> Attempting to access data from a BVCC type cache\n\n");
+	  printf("\n>>>>>>>>>>>>>>>>>>>> Attempting to access data from a BVCC type cache !!!");
 
-	  return 0;
-
-
+	  //return 0;
 
 
 
@@ -1024,12 +1117,15 @@ bcc_cache_fast_hit:
 
 
 
+
+	  printf("\nDoing BVCC, looking for address '0x%X' where '0x%X' (%u) is the tag in the '%uth' set.\n\n",
+	  				addr, tag, tag, set);
 
 		/* permissions are checked on cache misses */
 
 		/* check for a fast hit: access to same block */
 		if (CACHE_TAGSET(cp, addr) == cp->last_tagset) {
-			/* hit in the same block */
+			/* hit in the same block */printf("\n(fast) HIT in same block %p\n", blk);
 			blk = cp->last_blk;
 			goto bvcc_cache_fast_hit;
 		}
@@ -1039,15 +1135,25 @@ bcc_cache_fast_hit:
 			/* higly-associativity cache, access through the per-set hash tables */
 			int hindex = CACHE_HASH(cp, tag);
 
-			for (blk=cp->sets[set].hash[hindex]; blk; blk=blk->hash_next) {
-				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
+			for (blk = cp->sets[set].hash[hindex]; blk; blk = blk->hash_next) {
+				printf("   * trying out way at address %p - does '%X' match '%X'?\n", blk, blk->tag, tag);
+
+				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID)) {
+					printf("   * FOUND match at %p.  Cache HIT!\n", blk);
 					goto bvcc_cache_hit;
+				}
 			}
+
 		} else {
 			/* low-associativity cache, linear search the way list */
 			for (blk=cp->sets[set].way_head; blk; blk=blk->way_next) {
-				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
+				printf("   * trying out way at program address %p - does '%X' match '%X'?\n",
+						blk, blk->tag, tag);
+
+				if (blk->tag == tag && (blk->status & CACHE_BLK_VALID)) {
+					printf("   * FOUND match at %p.  Cache HIT!\n", blk);
 					goto bvcc_cache_hit;
+				}
 			}
 		}
 
@@ -1055,6 +1161,7 @@ bcc_cache_fast_hit:
 
 		/* **BVCC MISS** */
 		cp->misses++;
+		printf("\nCACHE MISS is occuring :( couldn't find tag match in the '%uth' set.\n", set);
 
 		/* select the appropriate block to replace, and re-link this entry to
 		the appropriate place in the way list */
@@ -1063,6 +1170,8 @@ bcc_cache_fast_hit:
 			case FIFO:
 				repl = cp->sets[set].way_tail;
 				update_way_list(&cp->sets[set], repl, Head);
+
+				printf("\n   The program address of the way being replaced is '%p' (%X)\n", repl, repl);
 				break;
 
 			case Random: {
@@ -1115,9 +1224,8 @@ bcc_cache_fast_hit:
 		lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize, repl, now+lat);
 
 		/* copy data out of cache block */
-		if (cp->balloc) {
+		if (cp->balloc)
 			CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
-		}
 
 		/* update dirty status */
 		if (cmd == Write)
@@ -1134,6 +1242,8 @@ bcc_cache_fast_hit:
 		if (cp->hsize)
 			link_htab_ent(cp, &cp->sets[set], repl);
 
+		printf("   The way at program address '%p' (%X) now has a tag of '0x%X'.\n", repl, repl, repl->tag);
+
 		/* return latency of the operation */
 		return lat;
 
@@ -1145,9 +1255,8 @@ bvcc_cache_hit:
 		cp->hits++;
 
 		/* copy data out of cache block, if block exists */
-		if (cp->balloc) {
+		if (cp->balloc)
 			CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
-		}
 
 		/* update dirty status */
 		if (cmd == Write)
@@ -1181,9 +1290,8 @@ bvcc_cache_fast_hit:
 		cp->hits++;
 
 		/* copy data out of cache block, if block exists */
-		if (cp->balloc) {
+		if (cp->balloc)
 			CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
-		}
 
 		/* update dirty status */
 		if (cmd == Write)
