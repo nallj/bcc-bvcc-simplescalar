@@ -456,8 +456,27 @@ ld_load_prog(char *fname,		/* program to load */
 	    if (fread(p, shdr.s_size, 1, fobj) < 1)
 	      fatal("could not read text section from executable");
 
+	    /*printf("\n\n>>>>>>>> THIS IS A TEST IF MAIN MEM IS BEING TRULY WRITTEN TO! <<<<<<<<<<\n\n");
+
+	    byte_t *mem_ptr = p;
+	    int ij;
+	    for (ij = 0; ij < 24; ij++, mem_ptr++) {
+	        printf("PROG MEM[%d]: 0x%X\n", ij, *mem_ptr);
+	    }*/
+
 	    /* copy program section into simulator target memory */
 	    mem_bcopy(mem_access, mem, Write, shdr.s_vaddr, p, shdr.s_size);
+
+	    /*printf("\n\n>>>>>>>> THIS IS A TEST TO SEE IF READS TO MAIN MEM ARE CONSISTENT! <<<<<<<<<<\n\n");
+
+	    printf("\n\n");
+	    md_addr_t addr_it = shdr.s_vaddr;
+	    byte_t val;
+
+	    for (ij = 0; ij < 24; ij++, addr_it++) {
+	    	val = mem_read_return_data(mem, addr_it);
+	    	printf("REREAD PROG MEM[%d]: 0x%X\n", ij, val);
+	    }*/
 
 	    /* create tail padding and copy into simulator target memory */
 	    mem_bzero(mem_access, mem,

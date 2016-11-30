@@ -277,7 +277,7 @@ CFLAGS = $(MFLAGS) $(FFLAGS) $(OFLAGS) $(BINUTILS_INC) $(BINUTILS_LIB)
 #
 # all the sources
 #
-SRCS =	main.c sim-fast.c sim-safe.c sim-cache.c sim-profile.c \
+SRCS =	main.c sim-fast.c sim-safe.c sim-cache.c sim-profile.c bdi_compression.c \
 	sim-eio.c sim-bpred.c sim-cheetah.c sim-outorder.c \
 	memory.c regs.c cache.c bpred.c ptrace.c eventq.c \
 	resource.c endian.c dlite.c symbol.c eval.c options.c range.c \
@@ -300,7 +300,7 @@ HDRS =	syscall.h memory.h regs.h sim.h loader.h cache.h bpred.h ptrace.h \
 OBJS =	main.$(OEXT) syscall.$(OEXT) memory.$(OEXT) regs.$(OEXT) \
 	loader.$(OEXT) endian.$(OEXT) dlite.$(OEXT) symbol.$(OEXT) \
 	eval.$(OEXT) options.$(OEXT) stats.$(OEXT) eio.$(OEXT) \
-	range.$(OEXT) misc.$(OEXT) machine.$(OEXT)
+	range.$(OEXT) misc.$(OEXT) machine.$(OEXT) bdi_compression.$(OEXT)
 
 #
 # programs to build

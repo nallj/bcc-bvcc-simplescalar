@@ -218,6 +218,21 @@ mem_access(struct mem_t *mem,		/* memory space to access */
   return md_fault_none;
 }
 
+// Custom method that returns a pointer to the value of data at the specified memory location.
+byte_t
+mem_read_return_data(struct mem_t *mem,		/* memory space to access */
+	   md_addr_t addr)					/* target address to access */
+{
+    byte_t *p;
+    {
+        printf("> Reading Mem located at address 0x%X ... ", addr);
+        *((byte_t *)p) = MEM_READ_BYTE(mem, addr);
+    }
+
+    // Return the value being pointed at.
+    return *p;
+}
+
 /* register memory system-specific statistics */
 void
 mem_reg_stats(struct mem_t *mem,	/* memory space to declare */

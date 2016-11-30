@@ -102,6 +102,9 @@ time_t sim_start_time;
 time_t sim_end_time;
 int sim_elapsed_time;
 
+// Execution clock cycles.
+unsigned long long execution_clock_cycles;
+
 /* byte/word swapping required to execute target executable on this host */
 int sim_swap_bytes;
 int sim_swap_words;

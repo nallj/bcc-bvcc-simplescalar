@@ -300,31 +300,38 @@ cache_create(char *name,		/* name of the cache */
     fatal("must specify miss/replacement functions");
 
   /* allocate the cache structure */
-//  if (cp->cacheType == Generic)
 	  cp = (struct cache_t *)
 		calloc(1, sizeof(struct cache_t) + (nsets-1)*sizeof(struct cache_set_t));
 
   if (!cp)
     fatal("out of virtual memory");
 
+  // Specify which cache architecture is implemented on this cache.
+  cp->cacheType = cacheType;
+
   /* initialize user parameters */
   cp->name = mystrdup(name);
   cp->nsets = nsets;
-  cp->bsize = bsize;
+  cp->bsize = (cacheType == BVCC) ? (bsize / 2) : bsize;
   cp->balloc = balloc;
   cp->usize = usize;
   cp->assoc = assoc;
   cp->policy = policy;
-  cp->cacheType = cacheType;
   cp->hit_latency = hit_latency;
+
+  // Allocate a victim cache for BVCC.
+  if (cacheType == BVCC)
+	  cp->victim_cache = cache_create("bvccVictimCache", nsets, bsize/2, /* balloc */FALSE,
+		       /* usize */0, assoc, Random, Generic,
+		       /* Miss latency */ 1, /* hit latency */1);
 
   /* miss/replacement functions */
   cp->blk_access_fn = blk_access_fn;
 
   /* compute derived parameters */
   cp->hsize = CACHE_HIGHLY_ASSOC(cp) ? (assoc >> 2) : 0;
-  cp->blk_mask = bsize-1;				// for 8B cache blocks, it would be ...00000111
-  cp->set_shift = log_base2(bsize);
+  cp->blk_mask = (cp->bsize)-1;				// for 8B cache blocks, it would be ...00000111
+  cp->set_shift = log_base2(cp->bsize);
   cp->set_mask = nsets-1;
   cp->tag_shift = cp->set_shift + log_base2(nsets);
   cp->tag_mask = (1 << (32 - cp->tag_shift))-1;
@@ -353,7 +360,7 @@ cache_create(char *name,		/* name of the cache */
   /* allocate data blocks */
   cp->data = (byte_t *)calloc(nsets * assoc,
 			      sizeof(struct cache_blk_t) +
-			      (cp->balloc ? (bsize*sizeof(byte_t)) : 0));
+			      (cp->balloc ? ((cp->bsize)*sizeof(byte_t)) : 0));
 
   // If the cache is a Buffer-Controlled Cache, allocate space for the MRU buffer.
   if (cp->cacheType == BCC) {
@@ -438,29 +445,6 @@ cache_create(char *name,		/* name of the cache */
 	    cp->sets[i].way_tail = blk;
 	}
     }
-
-  // If the cache is a Buffer-Controlled Cache, allocate space for the MRU buffer.
-  if (cp->cacheType == BCC) {
-	  // need buffer entry struct
-
-
-	  //cp->mru_buffer
-	  //for (int i = 0; i < nsets; i++) {
-		//  struct cache_bcc_mru_buffer_entry...
-		//  cp->mru_buffer =
-	  //}
-
-  // Allocate space for the MRU buffer used in the BCC cache architecture.
-  //cp->bcc_mru_buffer = (cache_bcc_mru_buffer *)calloc(nsets,
-	//		      sizeof(struct cache_bcc_mru_buffer_entry));
-
-
-	  /* allocate data blocks */
-	  //cp->data = (byte_t *)calloc(nsets * assoc,
-	//			      sizeof(struct cache_blk_t) +
-	//			      (cp->balloc ? (bsize*sizeof(byte_t)) : 0));
-  }
-
 
   return cp;
 }
@@ -976,6 +960,9 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			// If a block was found matching the requested tag, then Phased Mode has succeeded.
 			if (matching_block_found == 1) {
 
+				if (PRINT_STATUS_MESSAGES)
+					printf("      GREAT!  Phased Mode has succeeded - CACHE HIT.\n");
+
 				// It looks like the entry must be set later to ensure the block has been
 				//    correctly allocated in the simulator's memory.
 
@@ -1286,9 +1273,23 @@ bcc_hit:
 		/* read data block */
 		lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize, repl, now+lat);
 
+		///////////////////////////////////////////////////////////////////////
+		// THIS IS WHERE THE PROBLEM STARTS!!!
+		///////////////////////////////////////////////////////////////////////
+
+
+		// cmd, bofs, p
+		//if (!p)
+		//	printf("p is NULL, ");
+		//else
+		//	printf("%X, ", &p);
+		//printf("%d", nbytes);
+
 		/* copy data out of cache block */
-		if (cp->balloc)
-			CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
+		//if (cp->balloc) {
+			////CACHE_BCOPY(cmd, repl, bofs, p, nbytes);
+			//CACHE_BCOPY(Write, repl, bofs, this_is_where_memory_pointer_would_go, nbytes);
+		//}
 
 		/* update dirty status */
 		if (cmd == Write)
@@ -1316,8 +1317,8 @@ bvcc_cache_hit:
 		cp->hits++;
 
 		/* copy data out of cache block, if block exists */
-		if (cp->balloc)
-			CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
+		//if (cp->balloc)
+		//	CACHE_BCOPY(cmd, blk, bofs, p, nbytes);
 
 		/* update dirty status */
 		if (cmd == Write)

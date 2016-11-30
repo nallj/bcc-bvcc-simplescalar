@@ -228,6 +228,11 @@ mem_access(struct mem_t *mem,		/* memory space to access */
 	   void *vp,			/* host memory address to access */
 	   int nbytes);			/* number of bytes to access */
 
+// Custom method that returns a pointer to the value of data at the specified memory location.
+byte_t
+mem_read_return_data(struct mem_t *mem,		/* memory space to access */
+	   md_addr_t addr);					/* target address to access */
+
 /* register memory system-specific statistics */
 void
 mem_reg_stats(struct mem_t *mem,	/* memory space to declare */

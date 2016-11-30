@@ -133,6 +133,10 @@ struct stat_stat_t {
       unsigned int *var;	/* unsigned integer stat variable */
       unsigned int init_val;	/* initial unsigned integer value */
     } for_uint;
+    struct stat_for_ullint_t {
+      unsigned long long *var;		// Unsigned long long stat variable.
+      unsigned long long init_val;	// Initial unsigned long long integer value.
+    } for_ullint;
 #ifdef HOST_HAS_QWORD
     /* sc == sc_qword */
     struct stat_for_qword_t {

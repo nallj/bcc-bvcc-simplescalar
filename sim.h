@@ -82,6 +82,9 @@ extern time_t sim_start_time;
 extern time_t sim_end_time;
 extern int sim_elapsed_time;
 
+// Execution clock cycles.
+extern unsigned long long execution_clock_cycles;
+
 /* options database */
 extern struct opt_odb_t *sim_odb;
 

@@ -66,6 +66,9 @@
 #include "dlite.h"
 #include "sim.h"
 
+// For implementing the BVCC architecture.
+//#include "bdi_compression.c"
+
 /*
  * This file implements a functional cache simulator.  Cache statistics are
  * generated for a user-selected cache and TLB configuration, which may include
@@ -171,6 +174,45 @@ il1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
   else
     {
       /* access main memory, which is always done in the main simulator loop */
+	  printf("THERE IS NO IL2\n   replaced block from way #%u at address %p - now has tag '0x%X'\n",
+	  				      blk->way_id, blk, blk->tag);
+
+	  printf("The block address that was being attempted was 0x%X\n", baddr);
+
+	  // Check memory location for value present.
+	  byte_t val;
+	  md_addr_t addr_ptr = baddr;
+	  int ij;
+
+	  // Create a buffer for the memory contents to be stored before compression.
+	  unsigned char *blk_ptr = (unsigned char *)malloc(bsize * sizeof(char));
+	  //byte_t blk_ptr[bsize];
+
+	  for (ij = 0; ij < bsize; ij++, addr_ptr++) {
+		  blk_ptr[ij] = mem_read_return_data(mem, addr_ptr);
+		  printf("the value is 0x%X\n", blk_ptr[ij]);
+	  }
+
+	  unsigned block_bit_length = bsize * 8;
+	  unsigned block_compressed_bit_length = 0;
+
+	  // As seen in the host.h file, byte_t objects are simply unsigned chars which means
+	  //    a pointer to a byte_t should work with the BDI_Compress function.
+	  block_compressed_bit_length = BDICompress(blk_ptr, bsize);
+
+	  printf("\nThe uncompressed block is %u bits wide (%u bytes) and compressed is %u bits wide!\n\n",
+			  block_bit_length, bsize, block_compressed_bit_length);
+
+	  //if (block_compressed_bit_length != 32)
+	  //	exit(1);
+
+	  /*
+	   *   cp->data = (byte_t *)calloc(nsets * assoc,
+			      sizeof(struct cache_blk_t) +
+			      (cp->balloc ? (bsize*sizeof(byte_t)) : 0));
+	   *
+	   */
+
       return /* access latency, ignored */1;
     }
 }
@@ -352,7 +394,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
     {
       if (sscanf(cache_dl1_opt, "%[^:]:%d:%d:%d:%c:%c",
 		 name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
-	fatal("bad l1 D-cache parms: <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>");
+	fatal("bad l1 D-cache parms: <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
       cache_dl1 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			       /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
 			       dl1_access_fn, /* hit latency */1);
@@ -365,7 +407,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
 	  if (sscanf(cache_dl2_opt, "%[^:]:%d:%d:%d:%c:%c",
 		     name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
 	    fatal("bad l2 D-cache parms: "
-		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>");
+		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
 	  cache_dl2 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 				   /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
 				   dl2_access_fn, /* hit latency */1);
@@ -408,7 +450,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
     {
       if (sscanf(cache_il1_opt, "%[^:]:%d:%d:%d:%c:%c",
 		 name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
-	fatal("bad l1 I-cache parms: <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>");
+	fatal("bad l1 I-cache parms: <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
       cache_il1 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			       /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
 			       il1_access_fn, /* hit latency */1);
@@ -425,9 +467,9 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
       else
 	{
 	  if (sscanf(cache_il2_opt, "%[^:]:%d:%d:%d:%c:%c",
-		     name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
+		     name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6) // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
 	    fatal("bad l2 I-cache parms: "
-		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>");
+		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
 	  cache_il2 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 				   /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
 				   il2_access_fn, /* hit latency */1);
@@ -441,7 +483,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
     {
       if (sscanf(itlb_opt, "%[^:]:%d:%d:%d:%c:%c",
 		 name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
-	fatal("bad TLB parms: <name>:<nsets>:<page_size>:<assoc>:<repl>:<cust>");
+	fatal("bad TLB parms: <name>:<nsets>:<page_size>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
       itlb = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			  /* usize */sizeof(md_addr_t), assoc,
 			  cache_char2policy(c), cache_char2cacheType(customCacheType), itlb_access_fn,
@@ -455,7 +497,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
     {
       if (sscanf(dtlb_opt, "%[^:]:%d:%d:%d:%c:%c",
 		 name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
-	fatal("bad TLB parms: <name>:<nsets>:<page_size>:<assoc>:<repl>:<cust>");
+	fatal("bad TLB parms: <name>:<nsets>:<page_size>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
       dtlb = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			  /* usize */sizeof(md_addr_t), assoc,
 			  cache_char2policy(c), cache_char2cacheType(customCacheType), dtlb_access_fn,
@@ -530,6 +572,11 @@ sim_reg_stats(struct stat_sdb_t *sdb)	/* stats database */
   stat_reg_formula(sdb, "sim_inst_rate",
 		   "simulation speed (in insts/sec)",
 		   "sim_num_insn / sim_elapsed_time", NULL);
+
+  // Register total execution clock cycles.
+  stat_reg_ullint(sdb, "> SIM_EXE_CYCLES <",
+		   "total number of execution clock cycles",
+		   &execution_clock_cycles, 0, NULL);
 
   /* register cache stats */
   if (cache_il1
@@ -709,8 +756,10 @@ dcache_access_fn(struct mem_t *mem,	/* memory space to access */
 		 int nbytes)		/* number of bytes to access */
 {
   if (dtlb)
+	  execution_clock_cycles +=
     cache_access(dtlb, cmd, addr, NULL, nbytes, 0, NULL, NULL);
   if (cache_dl1)
+	  execution_clock_cycles +=
     cache_access(cache_dl1, cmd, addr, NULL, nbytes, 0, NULL, NULL);
   return mem_access(mem, cmd, addr, p, nbytes);
 }
@@ -755,9 +804,11 @@ sim_main(void)
 
       /* get the next instruction to execute */
       if (itlb)
+    	  execution_clock_cycles +=
 	cache_access(itlb, Read, IACOMPRESS(regs.regs_PC),
 		     NULL, ISCOMPRESS(sizeof(md_inst_t)), 0, NULL, NULL);
       if (cache_il1)
+    	  execution_clock_cycles +=
 	cache_access(cache_il1, Read, IACOMPRESS(regs.regs_PC),
 		     NULL, ISCOMPRESS(sizeof(md_inst_t)), 0, NULL, NULL);
       MD_FETCH_INST(inst, mem, regs.regs_PC);

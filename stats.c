@@ -308,6 +308,37 @@ stat_reg_uint(struct stat_sdb_t *sdb,	/* stat database */
   return stat;
 }
 
+/* register a long long unsigned integer statistical variable */
+struct stat_stat_t *
+stat_reg_ullint(struct stat_sdb_t *sdb,	/* stat database */
+	      char *name,		/* stat variable name */
+	      char *desc,		/* stat variable description */
+	      unsigned long long *var,	/* stat variable */
+	      unsigned long long init_val,	/* stat variable initial value */
+	      char *format)		/* optional variable output format */
+{
+  struct stat_stat_t *stat;
+
+  stat = (struct stat_stat_t *)calloc(1, sizeof(struct stat_stat_t));
+  if (!stat)
+    fatal("out of virtual memory");
+
+  stat->name = mystrdup(name);
+  stat->desc = mystrdup(desc);
+  stat->format = format ? format : "%12u";
+  stat->sc = sc_uint;
+  stat->variant.for_ullint.var = var;
+  stat->variant.for_ullint.init_val = init_val;
+
+  /* link onto SDB chain */
+  add_stat(sdb, stat);
+
+  /* initialize stat */
+  *var = init_val;
+
+  return stat;
+}
+
 #ifdef HOST_HAS_QWORD
 /* register a qword integer statistical variable */
 struct stat_stat_t *

@@ -237,6 +237,9 @@ struct cache_t
   struct cache_bcc_mru_buffer_entry *mru_buffer;
   //struct cache_bcc_mru_buffer *mru_buffer;
 
+  // Base-Victim Compression Cache victim cache.
+  struct cache_t *victim_cache;
+
   /* NOTE: this is a variable-size tail array, this must be the LAST field
      defined in this structure! */
   struct cache_set_t sets[1];	/* each entry is a set */
