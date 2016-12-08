@@ -69,6 +69,14 @@
 // For implementing the BVCC architecture.
 //#include "bdi_compression.c"
 
+
+// Use this variable to specify whether or not to print status messages as the simulator goes.
+//    WARNING: Printing these messages severely slow down simulation execution.
+//    (also in cache.c, line 590)
+const unsigned PRINT_STATUS_MESSAGES = 0;
+const unsigned PRINT_LATENCY_MESSAGES = 0;
+
+
 /*
  * This file implements a functional cache simulator.  Cache statistics are
  * generated for a user-selected cache and TLB configuration, which may include
@@ -131,16 +139,30 @@ dl1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	      struct cache_blk_t *blk,	/* ptr to block in upper level */
 	      tick_t now)		/* time of access */
 {
+	if (PRINT_LATENCY_MESSAGES)
+		printf("   > data cache MISS ... latency = ");
+
+	// Cost of data L1 access is 4 cycles.
   if (cache_dl2)
     {
       /* access next level of data cache hierarchy */
-      return cache_access(cache_dl2, cmd, baddr, NULL, bsize,
+      return 12 + cache_access(cache_dl2, cmd, baddr, NULL, bsize,
 			  /* now */now, /* pudata */NULL, /* repl addr */NULL);
     }
   else
     {
       /* access main memory, which is always done in the main simulator loop */
-      return /* access latency, ignored */1;
+      //return /* access latency, ignored */1;
+	  unsigned data_miss_latency = 0;
+
+	  // Cost of accessing main memory is 200 cycles.
+	  data_miss_latency = 200;
+
+	  if (PRINT_LATENCY_MESSAGES)
+		printf("%u\n", data_miss_latency);
+
+	  //execution_clock_cycles += data_miss_latency;
+	  return data_miss_latency;
     }
 }
 
@@ -154,7 +176,12 @@ dl2_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 {
   /* this is a miss to the lowest level, so access main memory, which is
      always done in the main simulator loop */
-  return /* access latency, ignored */1;
+  //return /* access latency, ignored */1;
+
+	// Cost of data L1 access is 4 cycles.
+	// Cost of accessing the unified L2 cache is 12 cycles.
+	// Cost of accessing main memory is 200 cycles.
+	return 4 + 12 + 200;
 }
 
 /* l1 inst cache l1 block miss handler function */
@@ -165,16 +192,20 @@ il1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	      struct cache_blk_t *blk,	/* ptr to block in upper level */
 	      tick_t now)		/* time of access */
 {
+	if (PRINT_LATENCY_MESSAGES)
+		printf("   > instruction cache MISS ... latency = ");
+
+	// Cost of instruction L1 access is 1 cycle.
   if (cache_il2)
     {
       /* access next level of inst cache hierarchy */
-      return cache_access(cache_il2, cmd, baddr, NULL, bsize,
+      return 12 + cache_access(cache_il2, cmd, baddr, NULL, bsize,
 			  /* now */now, /* pudata */NULL, /* repl addr */NULL);
     }
   else
     {
       /* access main memory, which is always done in the main simulator loop */
-	  printf("THERE IS NO IL2\n   replaced block from way #%u at address %p - now has tag '0x%X'\n",
+	  /*printf("THERE IS NO IL2\n   replaced block from way #%u at address %p - now has tag '0x%X'\n",
 	  				      blk->way_id, blk, blk->tag);
 
 	  printf("The block address that was being attempted was 0x%X\n", baddr);
@@ -201,7 +232,7 @@ il1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	  block_compressed_bit_length = BDICompress(blk_ptr, bsize);
 
 	  printf("\nThe uncompressed block is %u bits wide (%u bytes) and compressed is %u bits wide!\n\n",
-			  block_bit_length, bsize, block_compressed_bit_length);
+			  block_bit_length, bsize, block_compressed_bit_length);*/
 
 	  //if (block_compressed_bit_length != 32)
 	  //	exit(1);
@@ -213,7 +244,10 @@ il1_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 	   *
 	   */
 
-      return /* access latency, ignored */1;
+      //return /* access latency, ignored */1;
+
+	  // Cost of accessing main memory is 200 cycles.
+		return 200;
     }
 }
 
@@ -227,7 +261,12 @@ il2_access_fn(enum mem_cmd cmd,		/* access cmd, Read or Write */
 {
   /* this is a miss to the lowest level, so access main memory, which is
      always done in the main simulator loop */
-  return /* access latency, ignored */1;
+  //return /* access latency, ignored */1;
+
+	// Cost of instruction L1 access is 1 cycle.
+	// Cost of accessing the unified L2 cache is 12 cycles.
+	// Cost of accessing main memory is 200 cycles.
+	return 1 + 12 + 200;
 }
 
 /* inst cache block miss handler function */
@@ -392,12 +431,14 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
     }
   else /* dl1 is defined */
     {
+
+
       if (sscanf(cache_dl1_opt, "%[^:]:%d:%d:%d:%c:%c",
 		 name, &nsets, &bsize, &assoc, &c, &customCacheType) != 6)
 	fatal("bad l1 D-cache parms: <name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
-      cache_dl1 = cache_create(name, nsets, bsize, /* balloc */FALSE,
+	  cache_dl1 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 			       /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
-			       dl1_access_fn, /* hit latency */1);
+			       dl1_access_fn, /* hit latency */(customCacheType == 'b') ? 1 : 4);
 
       /* is the level 2 D-cache defined? */
       if (!mystricmp(cache_dl2_opt, "none"))
@@ -410,7 +451,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
 		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
 	  cache_dl2 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 				   /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
-				   dl2_access_fn, /* hit latency */1);
+				   dl2_access_fn, /* hit latency */ 12);
 	}
     }
 
@@ -472,7 +513,7 @@ sim_check_options(struct opt_odb_t *odb,	/* options database */
 		  "<name>:<nsets>:<bsize>:<assoc>:<repl>:<cust>"); // /* balloc */(customCacheType == 'c' ? TRUE : FALSE),
 	  cache_il2 = cache_create(name, nsets, bsize, /* balloc */FALSE,
 				   /* usize */0, assoc, cache_char2policy(c), cache_char2cacheType(customCacheType),
-				   il2_access_fn, /* hit latency */1);
+				   il2_access_fn, /* hit latency */ 12);
 	}
     }
 
@@ -702,9 +743,9 @@ sim_uninit(void)
     ? cache_access(dtlb, Read, (addr), NULL,				\
 		   sizeof(SRC_T), 0, NULL, NULL)			\
     : 0),								\
-   (cache_dl1								\
+   (execution_clock_cycles += cache_dl1						\
     ? cache_access(cache_dl1, Read, (addr), NULL,			\
-		   sizeof(SRC_T), 0, NULL, NULL)			\
+		   sizeof(SRC_T), execution_clock_cycles, NULL, NULL)			\
     : 0))
 
 #define READ_BYTE(SRC, FAULT)						\
@@ -727,9 +768,9 @@ sim_uninit(void)
     ? cache_access(dtlb, Write, (addr), NULL,				\
 		   sizeof(DST_T), 0, NULL, NULL)			\
     : 0),								\
-   (cache_dl1								\
+   (execution_clock_cycles += cache_dl1						\
     ? cache_access(cache_dl1, Write, (addr), NULL,			\
-		   sizeof(DST_T), 0, NULL, NULL)			\
+		   sizeof(DST_T), execution_clock_cycles, NULL, NULL)			\
     : 0))
 
 #define WRITE_BYTE(SRC, DST, FAULT)					\
@@ -755,12 +796,19 @@ dcache_access_fn(struct mem_t *mem,	/* memory space to access */
 		 void *p,		/* data input/output buffer */
 		 int nbytes)		/* number of bytes to access */
 {
+	unsigned recent_addition = 0;
+
   if (dtlb)
-	  execution_clock_cycles +=
+	  //recent_addition +=
     cache_access(dtlb, cmd, addr, NULL, nbytes, 0, NULL, NULL);
   if (cache_dl1)
-	  execution_clock_cycles +=
-    cache_access(cache_dl1, cmd, addr, NULL, nbytes, 0, NULL, NULL);
+	  recent_addition +=
+    cache_access(cache_dl1, cmd, addr, NULL, nbytes, execution_clock_cycles, NULL, NULL);
+
+  if (PRINT_LATENCY_MESSAGES)
+	  printf("%u\n", recent_addition);
+  execution_clock_cycles += recent_addition;
+
   return mem_access(mem, cmd, addr, p, nbytes);
 }
 
@@ -794,24 +842,41 @@ sim_main(void)
     dlite_main(regs.regs_PC - sizeof(md_inst_t), regs.regs_PC,
 	       sim_num_insn, &regs, mem);
 
+  unsigned long long instruction_count = 0;
+
   while (TRUE)
     {
+	  if (PRINT_STATUS_MESSAGES)
+		  printf("\n\n-----------------------------------------\nInstruction # %llu\n", ++instruction_count);
+
+	  if (PRINT_LATENCY_MESSAGES)
+		  printf("\n> Total execution cycles NOW: %llu\n", execution_clock_cycles);
+
       /* maintain $r0 semantics */
       regs.regs_R[MD_REG_ZERO] = 0;
 #ifdef TARGET_ALPHA
       regs.regs_F.d[MD_REG_ZERO] = 0.0;
 #endif /* TARGET_ALPHA */
 
+      if (PRINT_STATUS_MESSAGES)
+    	  printf("\nThe block address that was being attempted was 0x%X\n", IACOMPRESS(regs.regs_PC));
+
+      unsigned long long recent_addition = 0;
       /* get the next instruction to execute */
       if (itlb)
-    	  execution_clock_cycles +=
+    	  //recent_addition +=
 	cache_access(itlb, Read, IACOMPRESS(regs.regs_PC),
 		     NULL, ISCOMPRESS(sizeof(md_inst_t)), 0, NULL, NULL);
       if (cache_il1)
-    	  execution_clock_cycles +=
+    	  recent_addition +=
 	cache_access(cache_il1, Read, IACOMPRESS(regs.regs_PC),
-		     NULL, ISCOMPRESS(sizeof(md_inst_t)), 0, NULL, NULL);
+		     NULL, ISCOMPRESS(sizeof(md_inst_t)), execution_clock_cycles, NULL, NULL);
       MD_FETCH_INST(inst, mem, regs.regs_PC);
+
+      if (PRINT_LATENCY_MESSAGES)
+    	  printf("%llu\n", recent_addition);
+
+      execution_clock_cycles += recent_addition;
 
       /* keep an instruction count */
       sim_num_insn++;

@@ -319,12 +319,6 @@ cache_create(char *name,		/* name of the cache */
   cp->policy = policy;
   cp->hit_latency = hit_latency;
 
-  // Allocate a victim cache for BVCC.
-  if (cacheType == BVCC)
-	  cp->victim_cache = cache_create("bvccVictimCache", nsets, bsize/2, /* balloc */FALSE,
-		       /* usize */0, assoc, Random, Generic,
-		       /* Miss latency */ 1, /* hit latency */1);
-
   /* miss/replacement functions */
   cp->blk_access_fn = blk_access_fn;
 
@@ -384,8 +378,13 @@ cache_create(char *name,		/* name of the cache */
 		  cp->mru_buffer[i].way = NULL;
 	  }
 
+  // Allocate a victim cache for BVCC.
   } else if (cp->cacheType == BVCC) {
-	  // Do BVCC cache initialization.
+
+	  cp->victim_cache = cache_create("bvccVictimCache", nsets, bsize/2, /* balloc */FALSE,
+		       /* usize */0, assoc, Random, Victim, /* Miss latency */ 1, /* hit latency */1);
+
+	  cp->victim_cache->base_cache = cp;
   }
 
   if (!cp->data)
@@ -554,13 +553,13 @@ cache_stats(struct cache_t *cp,		/* cache instance */
    at NOW, places pointer to block user data in *UDATA, *P is untouched if
    cache blocks are not allocated (!CP->BALLOC), UDATA should be NULL if no
    user data is attached to blocks */
-unsigned int				/* latency of access in cycles */
+unsigned long long int				/* latency of access in cycles */
 cache_access(struct cache_t *cp,	/* cache to access */
 	     enum mem_cmd cmd,		/* access type, Read or Write */
 	     md_addr_t addr,		/* address of access */
 	     void *vp,			/* ptr to buffer for input/output */
 	     int nbytes,		/* number of bytes to access */
-	     tick_t now,		/* time of access */
+		 unsigned long long now,		/* time of access */
 	     byte_t **udata,		/* for return of user data ptr */
 	     md_addr_t *repl_addr)	/* for address of replaced block */
 {
@@ -585,17 +584,25 @@ cache_access(struct cache_t *cp,	/* cache to access */
   if ((addr + nbytes) > ((addr & ~cp->blk_mask) + cp->bsize))
     fatal("cache: access error: access spans block, addr 0x%08x", addr);
 
-
-
   // Use this variable to specify whether or not to print status messages as the simulator goes.
   //    WARNING: Printing these messages severely slow down simulation execution.
+  //    (also in sim-cache.c, line 76)
   const unsigned PRINT_STATUS_MESSAGES = 0;
+  const unsigned PRINT_LATENCY_MESSAGES = 0;
 
+  // Don't display messages for the TBL - we don't care about it.
+  const unsigned IS_NOT_A_TLB = (*(cp->name + 1) == 't') ? 0 : 1;
+
+  // For filtering debug messages based on cache type; to disable, replace with 'None.'
+  const unsigned HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE = (cp->cacheType == None) ? 1 : 0;
+
+  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
+	  printf("NOW: %llu\n", now);
 
   // Handle the actions of a general cache structure.
-  if (cp->cacheType == Generic) {
+  if (cp->cacheType == Generic || cp->cacheType == Victim) {
 
-	  if (PRINT_STATUS_MESSAGES)
+	  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 	    printf("\n[Generic Cache]: looking for tag '0x%X' (%u) in the '%uth' set.\n", tag, tag, set);
 
 	  /* permissions are checked on cache misses */
@@ -613,14 +620,14 @@ cache_access(struct cache_t *cp,	/* cache to access */
 		  /* higly-associativity cache, access through the per-set hash tables */
 		  int hindex = CACHE_HASH(cp, tag);
 
-		  if (PRINT_STATUS_MESSAGES)
+		  if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		    printf("   HIGH ASSOC [hash index = %d]\n   ", hindex);
 
 		  for (blk=cp->sets[set].hash[hindex];
 		   blk;
 		   blk=blk->hash_next)
 		{
-		  if (PRINT_STATUS_MESSAGES)
+		  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		    printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 		      blk->way_id, blk, blk->tag, tag);
 
@@ -630,7 +637,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
 		}
 	  else
 		{
-		  if (PRINT_STATUS_MESSAGES)
+		  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		    printf("   LOW ASSOC\n");
 
 		  /* low-associativity cache, linear search the way list */
@@ -638,7 +645,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
 		   blk;
 		   blk=blk->way_next)
 		{
-		  if (PRINT_STATUS_MESSAGES)
+		  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		    printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 		      blk->way_id, blk, blk->tag, tag);
 
@@ -660,7 +667,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
 		repl = cp->sets[set].way_tail;
 		update_way_list(&cp->sets[set], repl, Head);
 
-		if (PRINT_STATUS_MESSAGES)
+		if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		  printf("\n   The %uth way being replaced is at program address '%p' (0x%X)\n",
 				repl->way_id, repl, repl);
 		break;
@@ -774,12 +781,21 @@ cache_access(struct cache_t *cp,	/* cache to access */
 	  if (udata)
 		*udata = blk->user_data;
 
+	  if (PRINT_LATENCY_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE) {
+			printf((*cp->name == 'i') ? "   > instruction " :
+						((*cp->name == 'd') ? "   > DATA " :
+								((*cp->name == 'u') ? "   > unified " : "   > UNKNOWN CACHE ")));
+
+		  printf("(%c%c%c) SLOW cache (GEN) HIT ... latency = max(%u, %d) = ",
+				  *cp->name, *(cp->name + 1), *(cp->name + 2), cp->hit_latency, blk->ready - now);
+	  }
+
 	  /* return first cycle data is available to access */
-	  return (int) MAX(cp->hit_latency, (blk->ready - now));
+	  return MAX(cp->hit_latency, (long long int)(blk->ready - now));
 
 	 cache_fast_hit: /* fast hit handler */
 
-	  if (PRINT_STATUS_MESSAGES)
+	  if (PRINT_STATUS_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 	    printf("   Fast Cache Hit (same block as last request)\n");
 
 	  /* **FAST HIT** */
@@ -807,8 +823,17 @@ cache_access(struct cache_t *cp,	/* cache to access */
 	  cp->last_tagset = CACHE_TAGSET(cp, addr);
 	  cp->last_blk = blk;
 
+	  if (PRINT_LATENCY_MESSAGES && IS_NOT_A_TLB && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE) {
+			printf((*cp->name == 'i') ? "   > instruction " :
+						((*cp->name == 'd') ? "   > DATA " :
+								((*cp->name == 'u') ? "   > unified " : "   > UNKNOWN CACHE ")));
+
+		  printf("(%c%c%c) FAST cache (GEN) HIT ... latency = max(%u, %d) = ",
+				  *cp->name, *(cp->name + 1), *(cp->name + 2), cp->hit_latency, blk->ready - now);
+	  }
+
 	  /* return first cycle data is available to access */
-	  return (int) MAX(cp->hit_latency, (blk->ready - now));
+	  return MAX(cp->hit_latency, (long long int)(blk->ready - now));
 
   // Handle the actions of a Buffer-Controlled Cache.
   } else if (cp->cacheType == BCC) {
@@ -826,12 +851,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
 
 
-	    if (PRINT_STATUS_MESSAGES)
+	    if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 	    	printf("\n[Performing BCC]: looking for tag '0x%X' (%u) in the '%uth' set.\n", tag, tag, set);
 
 		// If the MRU buffer entry for the requested set has not been set,
 		//   this request results in a compulsory miss.
-	    if (PRINT_STATUS_MESSAGES)
+	    if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 	    	printf("Has the MRU buffer entry been set (is valid)? '%s'\n",
 	    		cp->mru_buffer[set].been_set ? "Yes" : "No");
 
@@ -840,7 +865,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
 
 		// Retreive the tag from the MRU buffer.
 		md_addr_t previous_tag_from_target_set = cp->mru_buffer[set].tag;
-		if (PRINT_STATUS_MESSAGES)
+		if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 			printf("   Entry is valid, holding tag '0x%X'\n\n", previous_tag_from_target_set);
 
 		// Find the cache in the way recorded in the buffer entry.
@@ -861,12 +886,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			if (cp->hsize) {
 
 				int hindex = CACHE_HASH(cp, tag);
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("   HIGH ASSOC [hash index = %d]\n   ", hindex);
 
 				for (blk = cp->sets[set].hash[hindex]; blk; blk = blk->hash_next) {
 
-					if (PRINT_STATUS_MESSAGES)
+					if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 						printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 							blk->way_id, blk, blk->tag, tag);
 
@@ -879,12 +904,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			// Low-associativity (<8 ways) cache: linearly search through the way list.
 			} else {
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("   LOW ASSOC\n");
 
 				for (blk = cp->sets[set].way_head; blk; blk = blk->way_next) {
 
-					if (PRINT_STATUS_MESSAGES)
+					if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 						printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 							blk->way_id, blk, blk->tag, tag);
 
@@ -901,12 +926,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			// The found way's tag content should match the requested tag.
 			unsigned found_way_tag = blk->tag;
 
-			if (PRINT_STATUS_MESSAGES)
+			if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 				printf("\n   MRU buffer prediction Way is at address %p. The tag content within the way is '0x%X' (%u).\n",
 					predicted_way, found_way_tag, found_way_tag);
 
 			// Check for tag equivalence; this is for debugging puposes.
-			if (PRINT_STATUS_MESSAGES && found_way_tag == tag)
+			if (PRINT_STATUS_MESSAGES && found_way_tag == tag && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 				printf("      GREAT!  The way content tag matches the requested tag.\n");
 
 			else if (found_way_tag != tag)
@@ -923,12 +948,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			if (cp->hsize) {
 
 				int hindex = CACHE_HASH(cp, tag);
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("   HIGH ASSOC [hash index = %d]\n   ", hindex);
 
 				for (blk = cp->sets[set].hash[hindex]; blk; blk = blk->hash_next) {
 
-					if (PRINT_STATUS_MESSAGES)
+					if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 						printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 							blk->way_id, blk, blk->tag, tag);
 
@@ -941,12 +966,12 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			// Low-associativity (<8 ways) cache: linearly search through the way list.
 			} else {
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("   LOW ASSOC\n");
 
 				for (blk = cp->sets[set].way_head; blk; blk = blk->way_next) {
 
-					if (PRINT_STATUS_MESSAGES)
+					if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 						printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 							blk->way_id, blk, blk->tag, tag);
 
@@ -960,7 +985,7 @@ cache_access(struct cache_t *cp,	/* cache to access */
 			// If a block was found matching the requested tag, then Phased Mode has succeeded.
 			if (matching_block_found == 1) {
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("      GREAT!  Phased Mode has succeeded - CACHE HIT.\n");
 
 				// It looks like the entry must be set later to ensure the block has been
@@ -984,6 +1009,8 @@ cache_access(struct cache_t *cp,	/* cache to access */
 bcc_slow_miss:
 		lat = 2;
 
+		//printf("SLOW ");
+
 // Everything common to both slow and compuslory misses (no additional penaly).
 bcc_miss:
 		cp->misses++;
@@ -996,7 +1023,7 @@ bcc_miss:
 				repl = cp->sets[set].way_tail;
 				update_way_list(&cp->sets[set], repl, Head);
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 					printf("\n   The %uth way being replaced is at program address '%p' (0x%X)\n",
 						repl->way_id, repl, repl);
 				break;
@@ -1062,6 +1089,10 @@ bcc_miss:
 		if (udata)
 			*udata = repl->user_data;
 
+		if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
+			printf("   > Updating the ready time to %llu + %d = %llu <\n",
+					now, lat, (now + lat));
+
 		/* update block status */
 		repl->ready = now + lat;
 
@@ -1075,7 +1106,7 @@ bcc_miss:
 		cp->mru_buffer[set].tag = tag;
 		cp->mru_buffer[set].been_set = 1;
 
-		if (PRINT_STATUS_MESSAGES)
+		if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 			printf("   The %uth way at program address '%p' (%X) now has a tag of '0x%X'.\n",
 				repl->way_id, repl, repl, repl->tag);
 
@@ -1118,8 +1149,25 @@ bcc_hit:
 		//cp->mru_buffer[set].way = way_counter;
 		//cp->mru_buffer[set].way = blk;
 
+		/*if (additional_hit_latency == 0) {
+			printf("additional_hit_latency : %u\n", additional_hit_latency);
+			printf((additional_hit_latency == 0) ? "Fast Cache Hit\n" : "Cache Hit\n");
+		}*/
+
+		if (PRINT_LATENCY_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE) {
+			printf((*cp->name == 'i') ? "   > instruction " :
+						((*cp->name == 'd') ? "   > DATA " :
+								((*cp->name == 'u') ? "   > unified " : "   > UNKNOWN CACHE ")));
+
+			if (!additional_hit_latency)
+				printf("FAST ", *cp->name);
+
+			printf("cache (BCC) HIT ... latency = max(%u, %d) = ",
+					cp->hit_latency + additional_hit_latency, blk->ready - now);
+		}
+//fatal("CONGRATS YOU DID IT!!!!! YOU FOUND A DATA CACHE HIT WITH BCC");
 		/* return first cycle data is available to access */
-		return (int) MAX(cp->hit_latency + additional_hit_latency, (blk->ready - now));
+		return MAX(cp->hit_latency, (long long int)(blk->ready - now));
 
 
 
@@ -1155,7 +1203,7 @@ bcc_hit:
 
 
 
-	    if (PRINT_STATUS_MESSAGES)
+	    if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		    printf("\n[Performing BVCC]: looking for tag '0x%X' (%u) in the '%uth' set.\n", tag, tag, set);
 
 		/* permissions are checked on cache misses */
@@ -1173,12 +1221,12 @@ bcc_hit:
 			/* higly-associativity cache, access through the per-set hash tables */
 			int hindex = CACHE_HASH(cp, tag);
 
-			if (PRINT_STATUS_MESSAGES)
+			if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 			    printf("   HIGH ASSOC [hash index = %d]\n", hindex);
 
 			for (blk = cp->sets[set].hash[hindex]; blk; blk = blk->hash_next) {
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 				    printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 				      blk->way_id, blk, blk->tag, tag);
 
@@ -1188,13 +1236,13 @@ bcc_hit:
 
 		} else {
 
-			if (PRINT_STATUS_MESSAGES)
+			if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 			    printf("   LOW ASSOC\n");
 
 			/* low-associativity cache, linear search the way list */
 			for (blk=cp->sets[set].way_head; blk; blk=blk->way_next) {
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 				    printf("   * trying out way #%u at address %p - does '0x%X' match '0x%X'?\n",
 				      blk->way_id, blk, blk->tag, tag);
 
@@ -1208,7 +1256,7 @@ bcc_hit:
 		/* **BVCC MISS** */
 		cp->misses++;
 
-		//if (PRINT_STATUS_MESSAGES)
+		//if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 		//	printf("\nCACHE MISS is occuring :( couldn't find tag match in the '%uth' set.\n", set);
 
 		/* select the appropriate block to replace, and re-link this entry to
@@ -1219,7 +1267,7 @@ bcc_hit:
 				repl = cp->sets[set].way_tail;
 				update_way_list(&cp->sets[set], repl, Head);
 
-				if (PRINT_STATUS_MESSAGES)
+				if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 				  printf("\n   The %uth way being replaced is at program address '%p' (0x%X)\n",
 						repl->way_id, repl, repl);
 				break;
@@ -1272,10 +1320,6 @@ bcc_hit:
 
 		/* read data block */
 		lat += cp->blk_access_fn(Read, CACHE_BADDR(cp, addr), cp->bsize, repl, now+lat);
-
-		///////////////////////////////////////////////////////////////////////
-		// THIS IS WHERE THE PROBLEM STARTS!!!
-		///////////////////////////////////////////////////////////////////////
 
 
 		// cmd, bofs, p
@@ -1342,13 +1386,13 @@ bvcc_cache_hit:
 			*udata = blk->user_data;
 
 		/* return first cycle data is available to access */
-		return (int) MAX(cp->hit_latency, (blk->ready - now));
+		return MAX(cp->hit_latency, (long long int)(blk->ready - now));
 
 
 /* BVCC fast hit handler */
 bvcc_cache_fast_hit:
 
-		if (PRINT_STATUS_MESSAGES)
+		if (PRINT_STATUS_MESSAGES && !HIDE_MESSAGES_FOR_SPECIFIC_CACHE_TYPE)
 			printf("   Fast Cache Hit (same block as last request)\n");
 
 		/* **FAST HIT** */
@@ -1375,7 +1419,7 @@ bvcc_cache_fast_hit:
 		cp->last_blk = blk;
 
 		/* return first cycle data is available to access */
-		return (int) MAX(cp->hit_latency, (blk->ready - now));
+		return MAX(cp->hit_latency, (long long int)(blk->ready - now));
 
 
 

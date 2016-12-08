@@ -109,7 +109,9 @@ enum cache_policy {
 enum custom_cache_type {
 	Generic,  // Standard generic cache structure supplied with out-of-the-box SimpleScalar.
 	BCC,      // Buffer-Controlled Cache
-	BVCC      // Base-Victim Compression Cache
+	BVCC,     // Base-Victim Compression Cache
+	Victim,   // BVCC victim cache
+	None      // Used when not filtering debug messages (not an actual cache architecture).
 };
 
 /* block status values */
@@ -128,8 +130,9 @@ struct cache_blk_t
      pointer, deletion requires a trip through the hash table bucket list */
   md_addr_t tag;		/* data block tag value */
   unsigned int status;		/* block status, see CACHE_BLK_* defs above */
-  tick_t ready;		/* time when block will be accessible, field
+  /*tick_t ready;		/* time when block will be accessible, field
 				   is set when a miss fetch is initiated */
+  unsigned long long ready;
   byte_t *user_data;		/* pointer to user defined data, e.g.,
 				   pre-decode data or physical page address */
   /* DATA should be pointer-aligned due to preceeding field */
@@ -239,6 +242,7 @@ struct cache_t
 
   // Base-Victim Compression Cache victim cache.
   struct cache_t *victim_cache;
+  struct cache_t *base_cache;
 
   /* NOTE: this is a variable-size tail array, this must be the LAST field
      defined in this structure! */
@@ -292,13 +296,13 @@ void cache_stats(struct cache_t *cp, FILE *stream);
    at NOW, places pointer to block user data in *UDATA, *P is untouched if
    cache blocks are not allocated (!CP->BALLOC), UDATA should be NULL if no
    user data is attached to blocks */
-unsigned int				/* latency of access in cycles */
+unsigned long long int				/* latency of access in cycles */
 cache_access(struct cache_t *cp,	/* cache to access */
 	     enum mem_cmd cmd,		/* access type, Read or Write */
 	     md_addr_t addr,		/* address of access */
 	     void *vp,			/* ptr to buffer for input/output */
 	     int nbytes,		/* number of bytes to access */
-	     tick_t now,		/* time of access */
+		 unsigned long long now,		/* time of access */
 	     byte_t **udata,		/* for return of user data ptr */
 	     md_addr_t *repl_addr);	/* for address of replaced block */
 
